@@ -1,6 +1,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from connection_manager import ConnectionManager
+from connection_manager import ConnectionManager, manager
+from schemas import IncomingMessage, OutgoingMessage
+from pydantic import ValidationError
 from dotenv import load_dotenv
 import os
 import json
@@ -17,8 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-manager = ConnectionManager()
-
 @app.get("/")
 def root():
     return {"message": "ChatApp backend is running."}
@@ -27,24 +27,52 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.get("/clients")
+def clients():
+    return {
+        "count": manager.count(),
+        "client_id": manager.get_client_ids()
+    }
+    
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoints(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket)
+    connected = await manager.connect(client_id, websocket)
+    if not connected:
+        return
+    
+    await manager.broadcast({
+        "type": "system",
+        "text": f"{client_id} joined the chat",
+        "online_count": manager.count()
+    })
+    
     try:
         while True:
-            data = await websocket.receive_text()
-            payload = json.loads(data)
-            message = {
-                "type": "message",
-                "client_id": client_id,
-                "text": payload.get("text", ""),
-            }
-            await manager.broadcast(json.dumps(message))
+            raw_data = await websocket.receive_text()
+            try:
+                event = IncomingMessage.model_validate(json.loads(raw_data))
+            except (ValidationError, json.JSONDecodeError):
+                await manager.send_to(client_id, {
+                    "type": "error",
+                    "text": "Invalid message format"
+                })
+                continue
             
+            if event.type == "ping":
+                await manager.send_to(client_id, {"type": "pong"})
+            elif event.type == "message":
+                await manager.broadcast({
+                    "type": "message",
+                    "client_id": client_id,
+                    "text": event.text,
+                    "online_count": manager.count()
+                })
+    
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        leave_msg = json.dumps({
+        manager.disconnect(client_id)
+        
+        await manager.broadcast({
             "type": "system",
-            "text": f"{client_id} left the chat"
+            "text": f"{client_id} left the chat",
+            "online_count": manager.count()
         })
-        await manager.broadcast(leave_msg)

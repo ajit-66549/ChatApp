@@ -6,7 +6,7 @@ import StatusBar from './components/StatusBar'
 const CLIENT_ID = `user_${Math.random().toString(36).slice(2, 7)}`
 
 export default function App() {
-  const { messages, status, reconnectCount, sendMessage } = useWebSocket(CLIENT_ID)
+  const { messages, status, reconnectCount, onlineCount, sendMessage } = useWebSocket(CLIENT_ID)
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -31,6 +31,7 @@ export default function App() {
         clientId={CLIENT_ID}
         status={status}
         reconnectCount={reconnectCount}
+        onlineCount={onlineCount}
       />
 
       {(status === 'reconnecting' || status === 'disconnected') && (
@@ -45,9 +46,13 @@ export default function App() {
         {messages.length === 0 && <p>No messages yet. Say something!</p>}
         {messages.map((msg: ChatMessage, i) => (
           <div key={i}>
-            {msg.type === 'system' ? (
-              <em>{msg.text}</em>
-            ) : (
+            {msg.type === 'system' && (
+              <em>{msg.text} — {msg.online_count} online</em>
+            )}
+            {msg.type === 'error' && (
+              <span>Error: {msg.text}</span>
+            )}
+            {msg.type === 'message' && (
               <span>
                 <strong>{msg.client_id === CLIENT_ID ? 'you' : msg.client_id}:</strong>{' '}
                 {msg.text}
@@ -67,10 +72,7 @@ export default function App() {
           placeholder={status === 'connected' ? 'Type a message...' : 'Waiting for connection...'}
           disabled={status !== 'connected'}
         />
-        <button
-          onClick={handleSend}
-          disabled={status !== 'connected'}
-        >
+        <button onClick={handleSend} disabled={status !== 'connected'}>
           Send
         </button>
       </div>

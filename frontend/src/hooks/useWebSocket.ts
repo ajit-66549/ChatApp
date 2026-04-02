@@ -9,26 +9,15 @@ export function useWebSocket(clientId: string) {
   const ws = useRef<WebSocket | null>(null)
   const reconnectAttempts = useRef(0)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const messageQueue = useRef<string[]>([])
   const isManuallyClosed = useRef(false)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [reconnectCount, setReconnectCount] = useState(0)
+  const [onlineCount, setOnlineCount] = useState(0)
 
   const connect = useCallback(() => {
-    // Prevent duplicate connections
-    if (
-      ws.current &&
-      (ws.current.readyState === WebSocket.OPEN ||
-        ws.current.readyState === WebSocket.CONNECTING)
-    ) {
-      return
-    }
-
     isManuallyClosed.current = false
-    setStatus('connecting')
-
     const socket = new WebSocket(`${WS_URL}/${clientId}`)
     ws.current = socket
 
@@ -36,76 +25,64 @@ export function useWebSocket(clientId: string) {
       setStatus('connected')
       reconnectAttempts.current = 0
       setReconnectCount(0)
-
-      // Flush queued messages
-      while (messageQueue.current.length > 0) {
-        const queued = messageQueue.current.shift()
-        if (queued) {
-          socket.send(queued)
-        }
-      }
     }
 
     socket.onmessage = (event: MessageEvent) => {
       const data: ChatMessage = JSON.parse(event.data)
+
+      // Update online count whenever it's present
+      if (data.online_count !== undefined) {
+        setOnlineCount(data.online_count)
+      }
+
+      // Ignore pong — it's just a heartbeat response
+      if (data.type === 'pong') return
+
       setMessages((prev) => [...prev, data])
     }
 
-    socket.onclose = () => {
-      // Clear current socket reference if this is the same socket
-      if (ws.current === socket) {
-        ws.current = null
-      }
+    socket.onclose = (event: CloseEvent) => {
+  if (isManuallyClosed.current) return
 
-      if (isManuallyClosed.current) return
+  // Don't retry if server explicitly rejected us
+  if (event.code === 4001 || event.code === 4002) {
+    setStatus('disconnected')
+    return
+  }
 
-      if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
-        setStatus('reconnecting')
-        reconnectAttempts.current += 1
-        setReconnectCount(reconnectAttempts.current)
+  if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+    setStatus('reconnecting')
+    reconnectAttempts.current += 1
+    setReconnectCount(reconnectAttempts.current)
+    reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS)
+  } else {
+    setStatus('disconnected')
+  }
+}
 
-        reconnectTimer.current = setTimeout(() => {
-          connect()
-        }, RECONNECT_DELAY_MS)
-      } else {
-        setStatus('disconnected')
-      }
-    }
-
-    socket.onerror = () => {
-      socket.close()
-    }
+    socket.onerror = () => socket.close()
   }, [clientId])
 
   useEffect(() => {
     connect()
-
     return () => {
       isManuallyClosed.current = true
-
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current)
-      }
-
+      reconnectTimer.current && clearTimeout(reconnectTimer.current)
       ws.current?.close()
-      ws.current = null
     }
   }, [connect])
 
   const sendMessage = useCallback((text: string) => {
-    const payload = JSON.stringify({ text })
-
     if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(payload)
-    } else {
-      // Queue message if not connected yet
-      messageQueue.current.push(payload)
+      ws.current.send(JSON.stringify({ type: 'message', text }))
     }
   }, [])
 
-  const resetMessages = useCallback(() => {
-    setMessages([])
+  const sendPing = useCallback(() => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'ping' }))
+    }
   }, [])
 
-  return { messages, status, reconnectCount, sendMessage, resetMessages }
+  return { messages, status, reconnectCount, onlineCount, sendMessage, sendPing }
 }

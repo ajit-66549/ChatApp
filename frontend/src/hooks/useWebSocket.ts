@@ -29,36 +29,26 @@ export function useWebSocket(clientId: string) {
 
     socket.onmessage = (event: MessageEvent) => {
       const data: ChatMessage = JSON.parse(event.data)
-
-      // Update online count whenever it's present
-      if (data.online_count !== undefined) {
-        setOnlineCount(data.online_count)
-      }
-
-      // Ignore pong — it's just a heartbeat response
+      if (data.online_count !== undefined) setOnlineCount(data.online_count)
       if (data.type === 'pong') return
-
       setMessages((prev) => [...prev, data])
     }
 
     socket.onclose = (event: CloseEvent) => {
-  if (isManuallyClosed.current) return
-
-  // Don't retry if server explicitly rejected us
-  if (event.code === 4001 || event.code === 4002) {
-    setStatus('disconnected')
-    return
-  }
-
-  if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
-    setStatus('reconnecting')
-    reconnectAttempts.current += 1
-    setReconnectCount(reconnectAttempts.current)
-    reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS)
-  } else {
-    setStatus('disconnected')
-  }
-}
+      if (isManuallyClosed.current) return
+      if (event.code === 4001 || event.code === 4002) {
+        setStatus('disconnected')
+        return
+      }
+      if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        setStatus('reconnecting')
+        reconnectAttempts.current += 1
+        setReconnectCount(reconnectAttempts.current)
+        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS)
+      } else {
+        setStatus('disconnected')
+      }
+    }
 
     socket.onerror = () => socket.close()
   }, [clientId])
@@ -84,5 +74,11 @@ export function useWebSocket(clientId: string) {
     }
   }, [])
 
-  return { messages, status, reconnectCount, onlineCount, sendMessage, sendPing }
+  const sendEvent = useCallback((payload: object) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify(payload))
+    }
+  }, [])
+
+  return { messages, status, reconnectCount, onlineCount, sendMessage, sendPing, sendEvent }
 }

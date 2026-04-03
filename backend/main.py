@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from connection_manager import ConnectionManager, manager
-from schemas import IncomingMessage, OutgoingMessage
+from connection_manager import manager
+from schemas import IncomingMessage
 from pydantic import ValidationError
 from dotenv import load_dotenv
 import os
@@ -34,17 +34,32 @@ def clients():
         "client_id": manager.get_client_ids()
     }
     
+@app.get("/rooms")
+def rooms():
+    return {
+        pin: {
+            "members": list(members),
+            "count": len(members)
+        }
+        for pin, members in manager.rooms.item()
+    }
+    
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoints(websocket: WebSocket, client_id: str):
     connected = await manager.connect(client_id, websocket)
     if not connected:
         return
     
+    await manager.send_to(client_id, {
+        "type": "system",
+        "text": "You are in the lobby"
+    })
+    
     await manager.broadcast({
         "type": "system",
         "text": f"{client_id} joined the chat",
         "online_count": manager.count()
-    })
+    }, exclude=client_id)
     
     try:
         while True:
@@ -60,19 +75,104 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
             
             if event.type == "ping":
                 await manager.send_to(client_id, {"type": "pong"})
-            elif event.type == "message":
-                await manager.broadcast({
-                    "type": "message",
-                    "client_id": client_id,
-                    "text": event.text,
-                    "online_count": manager.count()
+                
+            elif event.type == "create_room":
+                room_pin = manager.create_room()
+                manager.join_room(client_id, room_pin)
+                
+                await manager.send_to(client_id, {
+                    "type": "system",
+                    "text": "Room created! Share this PIN with others.",
+                    "room_pin": room_pin,
+                    "room_count": manager.get_room_count(room_pin)
                 })
+                
+            elif event.type =="join_room":
+                if not event.pin:
+                    manager.send_to(client_id, {
+                        "type": "error",
+                        "error": "PIN is required to join room"
+                    })
+                    continue
+                
+                success = manager.join_room(client_id, event.pin)
+                if not success:
+                    manager.send_to(client_id, {
+                        "type": "error",
+                        "text": f"{event.pin} is an invalid PIN"
+                    })
+                    continue
+                
+                await manager.send_to(client_id, {
+                    "type": "room_joined",
+                    "text": f"Joined room {event.pin}",
+                    "room_pin": event.pin,
+                    "room_count": manager.get_room_count(event.pin)
+                })
+                
+                await manager.broadcast_to_room(event.pin, {
+                    "type": "system",
+                    "text": f"{client_id} joined the room",
+                    "room_pin": event.pin,
+                    "room_count": manager.get_room_count(event.pin)
+                    }, exclude=client_id)
+            
+            elif event.type == "leave_room":
+                pin = manager.get_client_room(client_id)
+                
+                if not pin:
+                    manager.send_to(client_id, {
+                        "type": "error",
+                        "text": "You are not in any room"
+                    })
+                    continue
+                
+                await manager.broadcast_to_room(pin, {
+                    "type": "system",
+                    "text": f"{client_id} left the room",
+                    "room_count": manager.get_room_count(pin) - 1
+                    }, exclude=client_id)
+                
+                manager.leave_room(client_id)
+                
+                await manager.send_to(client_id, {
+                    "type": "room_left",
+                    "text": "You left the room. Back in lobby"
+                })
+                
+            elif event.type == "message":
+                pin = manager.get_client_room(client_id)
+                
+                if pin:
+                    await manager.broadcast_to_room(event.pin, {
+                        "type": "system",
+                        "client_id": client_id,
+                        "text": event.text,
+                        "online_count": manager.get_room_count(pin)
+                        }, exclude=client_id)
+                    
+                else:
+                    await manager.broadcast({
+                        "type": "message",
+                        "client_id": client_id,
+                        "text": event.text,
+                        "online_count": manager.count()
+                    })
     
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
+        pin = manager.get_client_room(client_id)
         
-        await manager.broadcast({
+        if pin:
+            await manager.broadcast_to_room(pin, {
             "type": "system",
-            "text": f"{client_id} left the chat",
-            "online_count": manager.count()
-        })
+            "room_pin": pin,
+            "text": f"{client_id} disconnected",
+            "room_count": manager.get_room_count(pin) - 1
+        }, exclude=client_id)
+        else:
+            await manager.broadcast({
+                "type": "system",
+                "text": f"{client_id} disconnected"
+            }, exclude=client_id)
+        
+        manager.disconnect(client_id)

@@ -41,7 +41,7 @@ def rooms():
             "members": list(members),
             "count": len(members)
         }
-        for pin, members in manager.rooms.item()
+        for pin, members in manager.rooms.items()
     }
     
 @app.websocket("/ws/{client_id}")
@@ -81,15 +81,15 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 manager.join_room(client_id, room_pin)
                 
                 await manager.send_to(client_id, {
-                    "type": "system",
+                    "type": "room_created",
                     "text": "Room created! Share this PIN with others.",
                     "room_pin": room_pin,
-                    "room_count": manager.get_room_count(room_pin)
+                    "online_count": manager.get_room_count(room_pin)
                 })
                 
             elif event.type =="join_room":
                 if not event.pin:
-                    manager.send_to(client_id, {
+                    await manager.send_to(client_id, {
                         "type": "error",
                         "error": "PIN is required to join room"
                     })
@@ -97,7 +97,7 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 
                 success = manager.join_room(client_id, event.pin)
                 if not success:
-                    manager.send_to(client_id, {
+                    await manager.send_to(client_id, {
                         "type": "error",
                         "text": f"{event.pin} is an invalid PIN"
                     })
@@ -107,7 +107,7 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                     "type": "room_joined",
                     "text": f"Joined room {event.pin}",
                     "room_pin": event.pin,
-                    "room_count": manager.get_room_count(event.pin)
+                    "online_count": manager.get_room_count(event.pin)
                 })
                 
                 await manager.broadcast_to_room(event.pin, {
@@ -121,7 +121,7 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 pin = manager.get_client_room(client_id)
                 
                 if not pin:
-                    manager.send_to(client_id, {
+                    await manager.send_to(client_id, {
                         "type": "error",
                         "text": "You are not in any room"
                     })
@@ -144,12 +144,12 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 pin = manager.get_client_room(client_id)
                 
                 if pin:
-                    await manager.broadcast_to_room(event.pin, {
-                        "type": "system",
+                    await manager.broadcast_to_room(pin, {
+                        "type": "message",
                         "client_id": client_id,
                         "text": event.text,
                         "online_count": manager.get_room_count(pin)
-                        }, exclude=client_id)
+                        })
                     
                 else:
                     await manager.broadcast({

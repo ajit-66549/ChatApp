@@ -4,12 +4,28 @@ from connection_manager import manager
 from schemas import IncomingMessage
 from pydantic import ValidationError
 from dotenv import load_dotenv
+from database import engine, Base
+from contextlib import asynccontextmanager
 import os
 import json
 
 load_dotenv()
 
-app = FastAPI(title=os.getenv("APP_NAME", "ChatApp"))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        async with engine.begin() as conn:
+            print("Database connected successfully")
+    except Exception:
+        print("DB connection failed")
+        raise
+        
+    yield
+    
+    await engine.dispose()
+    print("Database connection closed")
+
+app = FastAPI(title=os.getenv("APP_NAME", "ChatApp"), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,8 +40,14 @@ def root():
     return {"message": "ChatApp backend is running."}
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+async def health():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    return {"status": "ok", "database": db_status}
 
 @app.get("/clients")
 def clients():

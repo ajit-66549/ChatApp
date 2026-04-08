@@ -1,11 +1,27 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
+
+from pydantic import ValidationError
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
 from connection_manager import manager
 from schemas import IncomingMessage
-from pydantic import ValidationError
-from dotenv import load_dotenv
 from database import engine, Base
-from contextlib import asynccontextmanager
+from database import engine, get_db
+from crud import (
+    save_message,
+    get_user_by_username,
+    create_user,
+    get_room_by_pin,
+    create_room as db_create_room,
+    delete_room,
+    get_lobby_messages,
+    get_room_messages
+)
+
+from dotenv import load_dotenv
 import os
 import json
 
@@ -43,7 +59,7 @@ def root():
 async def health():
     try:
         async with engine.connect() as conn:
-            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+            await conn.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)}"
@@ -67,7 +83,7 @@ def rooms():
     }
     
 @app.websocket("/ws/{client_id}")
-async def websocket_endpoints(websocket: WebSocket, client_id: str):
+async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSession = Depends(get_db)):
     connected = await manager.connect(client_id, websocket)
     if not connected:
         return
@@ -101,6 +117,8 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
             elif event.type == "create_room":
                 room_pin = manager.create_room()
                 manager.join_room(client_id, room_pin)
+                
+                await db_create_room(db, room_pin)
                 
                 await manager.send_to(client_id, {
                     "type": "room_created",
@@ -164,8 +182,21 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 
             elif event.type == "message":
                 pin = manager.get_client_room(client_id)
+                sender = await get_user_by_username(db, client_id)
+                if not sender:
+                    sender = await create_user(
+                        db,
+                        username=client_id,
+                        hashed_password="ws_guest_user"
+                    )
                 
                 if pin:
+                    room = await get_room_by_pin(db, pin)
+                    if room:
+                        await save_message(
+                            db, text=event.text, user_id=sender.id, room_id=room.id
+                        )
+                        
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
                         "client_id": client_id,
@@ -174,6 +205,10 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                         })
                     
                 else:
+                    await save_message(
+                        db, text=event.text, user_id=sender.id, room_id=None
+                    )
+                    
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, Literal
+from datetime import datetime
 
 # message from client to server
 class IncomingMessage(BaseModel):
@@ -13,3 +14,21 @@ class IncomingMessage(BaseModel):
         if input is None and not input.strip():
             raise  ValueError("text must not be blank")
         return input.strip()
+    
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True     # allows SQLAlchemy models to pydantic model
+        
+class MessageResponse(BaseModel):
+    id: str
+    text: str
+    user_id: str
+    room_id: Optional[str]
+    created_at: datetime
+    
+    class Config:
+        from_attribute = True

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import ValidationError
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from connection_manager import manager
-from schemas import IncomingMessage
+from schemas import IncomingMessage, MessageResponse, PaginatedMessage
 from database import engine, Base
 from database import engine, get_db
 from crud import (
@@ -18,7 +18,9 @@ from crud import (
     create_room as db_create_room,
     delete_room,
     get_lobby_messages,
-    get_room_messages
+    get_room_messages,
+    cout_room_messages,
+    count_lobby_messages
 )
 
 from dotenv import load_dotenv
@@ -81,6 +83,41 @@ def rooms():
         }
         for pin, members in manager.rooms.items()
     }
+    
+@app.get("/history/lobby", response_model=PaginatedMessage)
+async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
+                        offset: int = Query(default=0, ge=0),
+                        db: AsyncSession = Depends(get_db)):
+    messages = await get_lobby_messages(db, limit=limit, offset=offset)
+    total = await count_lobby_messages(db)
+    
+    return PaginatedMessage(
+        messages=[MessageResponse.model_validate(m) for m in messages],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset+limit) < total
+    )
+    
+@app.get("history/room/{pin}", response_model=PaginatedMessage)
+async def room_mesages(pin: str,
+                       limit: int = Query(default=50, ge=1, le=100),
+                       offset: int = Query(default=0, ge=0),
+                       db: AsyncSession = Depends(get_db)):
+    room = await get_room_by_pin(db, pin)
+    if not room:
+        raise HTTPException(status_code=404, detail=f"Room {pin} not found")
+    
+    messages = await get_room_messages(db, room_id=room.id, limit=limit, offset=offset)
+    total = await cout_room_messages(db, room_id=room.id)
+    
+    return PaginatedMessage(
+        messages=[MessageResponse.model_validate(m) for m in messages],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(limit+offset) < total
+    )
     
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSession = Depends(get_db)):

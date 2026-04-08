@@ -31,4 +31,11 @@ class MessageResponse(BaseModel):
     created_at: datetime
     
     class Config:
-        from_attribute = True
+        from_attributes = True
+        
+class PaginatedMessage(BaseModel):
+    messages: list[MessageResponse]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

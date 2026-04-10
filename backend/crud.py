@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from models import User, Room, Message
 
 async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
@@ -76,3 +76,23 @@ async def cout_room_messages(db:AsyncSession, room_id: str) -> int:
         select(func.count()).select_from(Message).where(Message.room_id == room_id)
     )
     return result.scalar_one()
+
+# this function shows how database executed the query including index
+async def explain_lobby_message(db: AsyncSession) -> list[str]:
+    result = await db.execute(text("""
+                                   EXPLAIN ANALYZE 
+                                   SELECT * FROM messages 
+                                   WHERE room_id is Null 
+                                   ORDER BY created_at desc
+                                   LIMIT 50
+                                   """))
+    return [row[0] for row in result.fetchall()]
+
+async def explain_room_message(db:AsyncSession, room_id: str) -> list[str]:
+    result = await db.execute(text("""
+                                   SELECT * FROM messages
+                                   WHERE room_id = '{room_id}'
+                                   ORDER BY created_at desc
+                                   LIMIT 50
+                                   """))
+    return [row[0] for row in result.fetchall()]

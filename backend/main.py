@@ -20,7 +20,9 @@ from crud import (
     get_lobby_messages,
     get_room_messages,
     cout_room_messages,
-    count_lobby_messages
+    count_lobby_messages,
+    explain_lobby_message,
+    explain_room_message
 )
 
 from dotenv import load_dotenv
@@ -270,3 +272,17 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
             }, exclude=client_id)
         
         manager.disconnect(client_id)
+        
+@app.get("/debug/explain/lobby")
+async def explain_lobby(db: AsyncSession = Depends(get_db)):
+    plan = await explain_lobby_message(db)
+    return {"Query plan": plan}
+
+@app.get("/debug/explain/room/{pin}")
+async def explain_room(pin: str, db: AsyncSession = Depends(get_db)):
+    room = await get_room_by_pin(db, pin=pin)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    plan = await explain_lobby_message(db, room.id)
+    return {"Query_plan": plan}

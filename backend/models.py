@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, Text, Boolean,
-    DateTime, ForeignKey, Integer, func
+    DateTime, ForeignKey, Integer, func, Index
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -41,3 +41,9 @@ class Message(Base):
     user = relationship("User", back_populates="messages")
     room = relationship("Room", back_populates="messages")
     
+    __table_args__ = (
+        Index("room_time_idx", "room_id", "created_at"), # Composite index for fetching room messages sorted by time
+        Index("lobby_time_idx", "created_at",            # Partial index for created_at with filter where rooom_id is None
+              postgresql_where=Column("room_id").is_(None)),
+        Index("user_time_idx", "user_id", "created_at")  # Composite index for queries filtering by user_id and sorting by created_at
+    )

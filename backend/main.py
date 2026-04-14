@@ -1,15 +1,38 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from connection_manager import manager
-from schemas import IncomingMessage
+
 from pydantic import ValidationError
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
+from connection_manager import manager
+from schemas import IncomingMessage, MessageResponse, PaginatedMessage
+from database import engine, Base
+from database import engine, get_db
+from repositories import UserRepository, RoomRepository, MessageRepository
+
 from dotenv import load_dotenv
 import os
 import json
 
 load_dotenv()
 
-app = FastAPI(title=os.getenv("APP_NAME", "ChatApp"))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        async with engine.begin() as conn:
+            print("Database connected successfully")
+    except Exception:
+        print("DB connection failed")
+        raise
+        
+    yield
+    
+    await engine.dispose()
+    print("Database connection closed")
+
+app = FastAPI(title=os.getenv("APP_NAME", "ChatApp"), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,8 +47,14 @@ def root():
     return {"message": "ChatApp backend is running."}
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+async def health():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    return {"status": "ok", "database": db_status}
 
 @app.get("/clients")
 def clients():
@@ -44,8 +73,46 @@ def rooms():
         for pin, members in manager.rooms.items()
     }
     
+@app.get("/history/lobby", response_model=PaginatedMessage)
+async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
+                        offset: int = Query(default=0, ge=0),
+                        db: AsyncSession = Depends(get_db)):
+    repo = MessageRepository(db)
+    messages = await repo.get_lobby_messages(limit=limit, offset=offset)
+    total = await repo.count_lobby_messages()
+    
+    return PaginatedMessage(
+        messages=[MessageResponse.model_validate(m) for m in messages],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset+limit) < total
+    )
+    
+@app.get("history/room/{pin}", response_model=PaginatedMessage)
+async def room_mesages(pin: str,
+                       limit: int = Query(default=50, ge=1, le=100),
+                       offset: int = Query(default=0, ge=0),
+                       db: AsyncSession = Depends(get_db)):
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_pin(db, pin)
+    if not room:
+        raise HTTPException(status_code=404, detail=f"Room {pin} not found")
+    
+    msg_repo = MessageRepository(db)
+    messages = await msg_repo.get_room_messages(room_id=room.id, limit=limit, offset=offset)
+    total = await msg_repo.count_room_messages(room_id=room.id)
+    
+    return PaginatedMessage(
+        messages=[MessageResponse.model_validate(m) for m in messages],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(limit+offset) < total
+    )
+    
 @app.websocket("/ws/{client_id}")
-async def websocket_endpoints(websocket: WebSocket, client_id: str):
+async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSession = Depends(get_db)):
     connected = await manager.connect(client_id, websocket)
     if not connected:
         return
@@ -79,6 +146,9 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
             elif event.type == "create_room":
                 room_pin = manager.create_room()
                 manager.join_room(client_id, room_pin)
+                
+                room_repo = RoomRepository(db)
+                await room_repo.create(room_pin)
                 
                 await manager.send_to(client_id, {
                     "type": "room_created",
@@ -142,8 +212,23 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                 
             elif event.type == "message":
                 pin = manager.get_client_room(client_id)
+                user_repo = UserRepository(db)
+                sender = await user_repo.get_by_username(client_id)
+                if not sender:
+                    sender = await user_repo.create(
+                        username=client_id,
+                        hashed_password="ws_guest_user"
+                    )
                 
+                msg_repo = MessageRepository(db)
                 if pin:
+                    room_repo = RoomRepository(db)
+                    room = await room_repo.get_by_pin(pin)
+                    if room:
+                        await msg_repo.save_message(
+                            text=event.text, user_id=sender.id, room_id=room.id
+                        )
+                        
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
                         "client_id": client_id,
@@ -152,6 +237,10 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
                         })
                     
                 else:
+                    await msg_repo.save_message(
+                        text=event.text, user_id=sender.id, room_id=None
+                    )
+                    
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,
@@ -176,3 +265,20 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str):
             }, exclude=client_id)
         
         manager.disconnect(client_id)
+        
+@app.get("/debug/explain/lobby")
+async def explain_lobby(db: AsyncSession = Depends(get_db)):
+    msg_repo = MessageRepository(db)
+    plan = await msg_repo.explain_lobby_message()
+    return {"Query plan": plan}
+
+@app.get("/debug/explain/room/{pin}")
+async def explain_room(pin: str, db: AsyncSession = Depends(get_db)):
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_pin(pin=pin)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    msg_repo = MessageRepository(db)
+    plan = await msg_repo.explain_room_message(room.id)
+    return {"Query_plan": plan}

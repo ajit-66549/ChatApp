@@ -1,29 +1,49 @@
 import { useState, useRef, useEffect } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import type { ChatMessage } from './types/chat'
+import { useHistory } from './hooks/useHistory'
+import type { ChatMessage, HistoryMessage } from './types/chat'
 
 const CLIENT_ID = `user_${Math.random().toString(36).slice(2, 7)}`
 
 export default function App() {
   const { messages, status, reconnectCount, onlineCount, sendMessage, sendEvent } = useWebSocket(CLIENT_ID)
+  const { history, loading, hasMore, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory()
+
   const [input, setInput] = useState('')
   const [pinInput, setPinInput] = useState('')
   const [currentRoom, setCurrentRoom] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Load lobby history on first connect
+  useEffect(() => {
+    if (status === 'connected' && !currentRoom) {
+      fetchLobbyHistory(true)
+    }
+  }, [status])
+
+  // Auto scroll to bottom on new live message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Update room state from incoming events
+  // Track room state from incoming WebSocket events
   useEffect(() => {
     const last = messages[messages.length - 1]
     if (!last) return
+
     if (last.type === 'room_created' || last.type === 'room_joined') {
-      setCurrentRoom(last.room_pin ?? null)
+      const pin = last.room_pin ?? null
+      setCurrentRoom(pin)
+      if (pin) {
+        clearHistory()
+        fetchRoomHistory(pin, true)
+      }
     }
+
     if (last.type === 'room_left') {
       setCurrentRoom(null)
+      clearHistory()
+      fetchLobbyHistory(true)
     }
   }, [messages])
 
@@ -32,6 +52,14 @@ export default function App() {
     if (!trimmed) return
     sendMessage(trimmed)
     setInput('')
+  }
+
+  const handleLoadMore = () => {
+    if (currentRoom) {
+      fetchRoomHistory(currentRoom)
+    } else {
+      fetchLobbyHistory()
+    }
   }
 
   return (
@@ -78,9 +106,34 @@ export default function App() {
         )}
       </div>
 
-      {/* Messages */}
+      {/* Message area */}
       <div>
-        {messages.length === 0 && <p>No messages yet.</p>}
+
+        {/* Load more button */}
+        {hasMore && (
+          <button onClick={handleLoadMore} disabled={loading}>
+            {loading ? 'Loading...' : 'Load older messages'}
+          </button>
+        )}
+
+        {/* History messages from DB */}
+        {history.map((msg: HistoryMessage) => (
+          <div key={msg.id}>
+            <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
+            {' '}
+            <strong>{msg.user_id === CLIENT_ID ? 'you' : msg.user_id}:</strong>
+            {' '}
+            {msg.text}
+            <small> [history]</small>
+          </div>
+        ))}
+
+        {/* Divider between history and live */}
+        {history.length > 0 && messages.filter(m => m.type === 'message').length > 0 && (
+          <div>── live ──</div>
+        )}
+
+        {/* Live messages from WebSocket */}
         {messages.map((msg: ChatMessage, i) => (
           <div key={i}>
             {msg.type === 'room_created' && (

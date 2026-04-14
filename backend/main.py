@@ -10,20 +10,7 @@ from connection_manager import manager
 from schemas import IncomingMessage, MessageResponse, PaginatedMessage
 from database import engine, Base
 from database import engine, get_db
-from crud import (
-    save_message,
-    get_user_by_username,
-    create_user,
-    get_room_by_pin,
-    create_room as db_create_room,
-    delete_room,
-    get_lobby_messages,
-    get_room_messages,
-    cout_room_messages,
-    count_lobby_messages,
-    explain_lobby_message,
-    explain_room_message
-)
+from repositories import UserRepository, RoomRepository, MessageRepository
 
 from dotenv import load_dotenv
 import os
@@ -90,8 +77,9 @@ def rooms():
 async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
                         offset: int = Query(default=0, ge=0),
                         db: AsyncSession = Depends(get_db)):
-    messages = await get_lobby_messages(db, limit=limit, offset=offset)
-    total = await count_lobby_messages(db)
+    repo = MessageRepository(db)
+    messages = await repo.get_lobby_messages(limit=limit, offset=offset)
+    total = await repo.count_lobby_messages()
     
     return PaginatedMessage(
         messages=[MessageResponse.model_validate(m) for m in messages],
@@ -106,12 +94,14 @@ async def room_mesages(pin: str,
                        limit: int = Query(default=50, ge=1, le=100),
                        offset: int = Query(default=0, ge=0),
                        db: AsyncSession = Depends(get_db)):
-    room = await get_room_by_pin(db, pin)
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_pin(db, pin)
     if not room:
         raise HTTPException(status_code=404, detail=f"Room {pin} not found")
     
-    messages = await get_room_messages(db, room_id=room.id, limit=limit, offset=offset)
-    total = await cout_room_messages(db, room_id=room.id)
+    msg_repo = MessageRepository(db)
+    messages = await msg_repo.get_room_messages(room_id=room.id, limit=limit, offset=offset)
+    total = await msg_repo.count_room_messages(room_id=room.id)
     
     return PaginatedMessage(
         messages=[MessageResponse.model_validate(m) for m in messages],
@@ -157,7 +147,8 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
                 room_pin = manager.create_room()
                 manager.join_room(client_id, room_pin)
                 
-                await db_create_room(db, room_pin)
+                room_repo = RoomRepository(db)
+                await room_repo.create(room_pin)
                 
                 await manager.send_to(client_id, {
                     "type": "room_created",
@@ -221,19 +212,21 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
                 
             elif event.type == "message":
                 pin = manager.get_client_room(client_id)
-                sender = await get_user_by_username(db, client_id)
+                user_repo = UserRepository(db)
+                sender = await user_repo.get_by_username(client_id)
                 if not sender:
-                    sender = await create_user(
-                        db,
+                    sender = await user_repo.create(
                         username=client_id,
                         hashed_password="ws_guest_user"
                     )
                 
+                msg_repo = MessageRepository(db)
                 if pin:
-                    room = await get_room_by_pin(db, pin)
+                    room_repo = RoomRepository(db)
+                    room = await room_repo.get_by_pin(pin)
                     if room:
-                        await save_message(
-                            db, text=event.text, user_id=sender.id, room_id=room.id
+                        await msg_repo.save_message(
+                            text=event.text, user_id=sender.id, room_id=room.id
                         )
                         
                     await manager.broadcast_to_room(pin, {
@@ -244,8 +237,8 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
                         })
                     
                 else:
-                    await save_message(
-                        db, text=event.text, user_id=sender.id, room_id=None
+                    await msg_repo.save_message(
+                        text=event.text, user_id=sender.id, room_id=None
                     )
                     
                     await manager.broadcast({
@@ -275,14 +268,17 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
         
 @app.get("/debug/explain/lobby")
 async def explain_lobby(db: AsyncSession = Depends(get_db)):
-    plan = await explain_lobby_message(db)
+    msg_repo = MessageRepository(db)
+    plan = await msg_repo.explain_lobby_message()
     return {"Query plan": plan}
 
 @app.get("/debug/explain/room/{pin}")
 async def explain_room(pin: str, db: AsyncSession = Depends(get_db)):
-    room = await get_room_by_pin(db, pin=pin)
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_pin(pin=pin)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     
-    plan = await explain_lobby_message(db, room.id)
+    msg_repo = MessageRepository(db)
+    plan = await msg_repo.explain_room_message(room.id)
     return {"Query_plan": plan}

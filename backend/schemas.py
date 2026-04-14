@@ -11,8 +11,8 @@ class IncomingMessage(BaseModel):
     @field_validator("text")
     @classmethod
     def text_not_blank(cls, input):
-        if input is None and not input.strip():
-            raise  ValueError("text must not be blank")
+        if input is None or not input.strip():
+            raise ValueError("text must not be blank")
         return input.strip()
     
 class UserResponse(BaseModel):

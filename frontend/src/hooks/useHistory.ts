@@ -2,14 +2,14 @@ import { useState, useCallback } from 'react'
 import type { HistoryMessage } from '../types/chat'
 
 const API_URL = 'http://localhost:8000'
+const LIMIT = 20
 
 export function useHistory() {
   const [history, setHistory] = useState<HistoryMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [offset, setOffset] = useState(0)
-
-  const LIMIT = 20
+  const [loaded, setLoaded] = useState(false)  // tracks if history has been loaded at least once
 
   const fetchLobbyHistory = useCallback(async (reset: boolean = false) => {
     setLoading(true)
@@ -20,20 +20,18 @@ export function useHistory() {
         `${API_URL}/history/lobby?limit=${LIMIT}&offset=${currentOffset}`
       )
       const data = await res.json()
-
-      // Concept: reverse because DB returns newest first
-      // but we want to display oldest at top
       const reversed = [...data.messages].reverse()
 
       if (reset) {
         setHistory(reversed)
+        setOffset(LIMIT)
       } else {
-        // Prepend older messages at the top
         setHistory((prev) => [...reversed, ...prev])
+        setOffset(currentOffset + LIMIT)
       }
 
       setHasMore(data.has_more)
-      setOffset(currentOffset + LIMIT)
+      setLoaded(true)
     } catch (e) {
       console.error('Failed to fetch lobby history', e)
     } finally {
@@ -49,23 +47,21 @@ export function useHistory() {
       const res = await fetch(
         `${API_URL}/history/room/${pin}?limit=${LIMIT}&offset=${currentOffset}`
       )
-
-      if (!res.ok) {
-        console.error('Room not found')
-        return
-      }
+      if (!res.ok) return
 
       const data = await res.json()
       const reversed = [...data.messages].reverse()
 
       if (reset) {
         setHistory(reversed)
+        setOffset(LIMIT)
       } else {
         setHistory((prev) => [...reversed, ...prev])
+        setOffset(currentOffset + LIMIT)
       }
 
       setHasMore(data.has_more)
-      setOffset(currentOffset + LIMIT)
+      setLoaded(true)
     } catch (e) {
       console.error('Failed to fetch room history', e)
     } finally {
@@ -77,12 +73,14 @@ export function useHistory() {
     setHistory([])
     setOffset(0)
     setHasMore(false)
+    setLoaded(false)
   }, [])
 
   return {
     history,
     loading,
     hasMore,
+    loaded,   // ← tells App whether history was ever loaded
     fetchLobbyHistory,
     fetchRoomHistory,
     clearHistory

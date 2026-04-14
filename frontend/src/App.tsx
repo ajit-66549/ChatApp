@@ -7,26 +7,20 @@ const CLIENT_ID = `user_${Math.random().toString(36).slice(2, 7)}`
 
 export default function App() {
   const { messages, status, reconnectCount, onlineCount, sendMessage, sendEvent } = useWebSocket(CLIENT_ID)
-  const { history, loading, hasMore, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory()
+  const { history, loading, hasMore, loaded, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory()
 
   const [input, setInput] = useState('')
   const [pinInput, setPinInput] = useState('')
   const [currentRoom, setCurrentRoom] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Load lobby history on first connect
-  useEffect(() => {
-    if (status === 'connected' && !currentRoom) {
-      fetchLobbyHistory(true)
-    }
-  }, [status])
-
-  // Auto scroll to bottom on new live message
+  // Auto scroll on new live message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Track room state from incoming WebSocket events
+  // Track room state from WebSocket events
+  // SRP: this effect only handles room state changes
   useEffect(() => {
     const last = messages[messages.length - 1]
     if (!last) return
@@ -34,16 +28,12 @@ export default function App() {
     if (last.type === 'room_created' || last.type === 'room_joined') {
       const pin = last.room_pin ?? null
       setCurrentRoom(pin)
-      if (pin) {
-        clearHistory()
-        fetchRoomHistory(pin, true)
-      }
+      clearHistory()  // clear old history when switching context
     }
 
     if (last.type === 'room_left') {
       setCurrentRoom(null)
       clearHistory()
-      fetchLobbyHistory(true)
     }
   }, [messages])
 
@@ -52,6 +42,15 @@ export default function App() {
     if (!trimmed) return
     sendMessage(trimmed)
     setInput('')
+  }
+
+  // SRP: reload button handler has one job — fetch history for current context
+  const handleReload = () => {
+    if (currentRoom) {
+      fetchRoomHistory(currentRoom, true)
+    } else {
+      fetchLobbyHistory(true)
+    }
   }
 
   const handleLoadMore = () => {
@@ -104,20 +103,24 @@ export default function App() {
             Leave Room
           </button>
         )}
+
+        {/* OCP: Reload button is independent — adding auto-load later won't require changing this */}
+        <button onClick={handleReload} disabled={loading || status !== 'connected'}>
+          {loading ? 'Loading...' : '↺ Reload History'}
+        </button>
       </div>
 
       {/* Message area */}
       <div>
-
-        {/* Load more button */}
-        {hasMore && (
+        {/* Load more — only shown after history is loaded */}
+        {loaded && hasMore && (
           <button onClick={handleLoadMore} disabled={loading}>
             {loading ? 'Loading...' : 'Load older messages'}
           </button>
         )}
 
-        {/* History messages from DB */}
-        {history.map((msg: HistoryMessage) => (
+        {/* History messages — only shown after reload button clicked */}
+        {loaded && history.map((msg: HistoryMessage) => (
           <div key={msg.id}>
             <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
             {' '}
@@ -129,15 +132,17 @@ export default function App() {
         ))}
 
         {/* Divider between history and live */}
-        {history.length > 0 && messages.filter(m => m.type === 'message').length > 0 && (
+        {loaded && history.length > 0 && (
           <div>── live ──</div>
         )}
 
-        {/* Live messages from WebSocket */}
+        {/* Live messages */}
         {messages.map((msg: ChatMessage, i) => (
           <div key={i}>
             {msg.type === 'room_created' && (
-              <strong>Room created! PIN: {msg.room_pin} — share with others</strong>
+              <div>
+                <strong>Room created!</strong> PIN: <strong>{msg.room_pin}</strong> — share with others
+              </div>
             )}
             {msg.type === 'room_joined' && (
               <em>Joined room {msg.room_pin} ({msg.online_count} online)</em>

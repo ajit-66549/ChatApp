@@ -7,11 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from connection_manager import manager
-from schemas import IncomingMessage, MessageResponse, PaginatedMessage, SignupRequest, SignupResponse
+from schemas import IncomingMessage, MessageResponse, PaginatedMessage, SignupRequest, SignupResponse, LoginRequest, LoginResponse
 from database import engine, Base
 from database import engine, get_db
 from repositories import UserRepository, RoomRepository, MessageRepository
-from auth import hash_password
+from auth import hash_password, verify_password, create_access_token, decode_access_token
 
 from dotenv import load_dotenv
 import os
@@ -85,7 +85,46 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
     hash = await hash_password(body.password)
     user = await user_repo.create(username=body.username, hashed_password=hash)
     return user
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+    user_repo = UserRepository(db)
     
+    # check if user exist
+    user = await user_repo.get_by_username(body.username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid Credentials")
+    
+    # check valid password
+    is_valid = verify_password(body.password, user.password)
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Invalid Credentials")
+    
+    token = create_access_token({
+        "sub": user.id,
+        "username": user.username
+    })
+    
+    return LoginResponse(
+        access_token=token,
+        token_type="bearer",
+        user_id=user.id,
+        username=user.username
+    )
+    
+@app.get("/auth/me")
+async def me(token: str, db: AsyncSession = Depends(get_db)):
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(payload["sub"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return {"user_id": user.id, "username": user.username}
+
 # History
 @app.get("/history/lobby", response_model=PaginatedMessage)
 async def lobby_history(limit: int = Query(default=50, ge=1, le=100),

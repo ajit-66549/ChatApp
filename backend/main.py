@@ -7,10 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from connection_manager import manager
-from schemas import IncomingMessage, MessageResponse, PaginatedMessage
+from schemas import IncomingMessage, MessageResponse, PaginatedMessage, SignupRequest, SignupResponse
 from database import engine, Base
 from database import engine, get_db
 from repositories import UserRepository, RoomRepository, MessageRepository
+from auth import hash_password
 
 from dotenv import load_dotenv
 import os
@@ -73,6 +74,19 @@ def rooms():
         for pin, members in manager.rooms.items()
     }
     
+# Auth
+@app.post("/auth/signup", response_model=SignupResponse, status_code=201)
+async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
+    user_repo = UserRepository(db)
+    
+    if await user_repo.exists(body.username):
+        raise HTTPException(status_code=409, detail="Username already taken")
+    
+    hash = await hash_password(body.password)
+    user = await user_repo.create(username=body.username, hashed_password=hash)
+    return user
+    
+# History
 @app.get("/history/lobby", response_model=PaginatedMessage)
 async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
                         offset: int = Query(default=0, ge=0),
@@ -111,6 +125,7 @@ async def room_mesages(pin: str,
         has_more=(limit+offset) < total
     )
     
+# Websocket
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSession = Depends(get_db)):
     connected = await manager.connect(client_id, websocket)
@@ -266,6 +281,7 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
         
         manager.disconnect(client_id)
         
+# Debug
 @app.get("/debug/explain/lobby")
 async def explain_lobby(db: AsyncSession = Depends(get_db)):
     msg_repo = MessageRepository(db)

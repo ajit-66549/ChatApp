@@ -12,6 +12,8 @@ from database import engine, Base
 from database import engine, get_db
 from repositories import UserRepository, RoomRepository, MessageRepository
 from auth import hash_password, verify_password, create_access_token, decode_access_token
+from dependencies import get_current_user, get_optional_user
+from models import User
 
 from dotenv import load_dotenv
 import os
@@ -113,23 +115,19 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     
 @app.get("/auth/me")
-async def me(token: str, db: AsyncSession = Depends(get_db)):
-    payload = decode_access_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
-    user_repo = UserRepository(db)
-    user = await user_repo.get_by_id(payload["sub"])
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    
-    return {"user_id": user.id, "username": user.username}
+async def me(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "created_at": current_user.created_at
+    }
 
 # History
 @app.get("/history/lobby", response_model=PaginatedMessage)
 async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
                         offset: int = Query(default=0, ge=0),
-                        db: AsyncSession = Depends(get_db)):
+                        db: AsyncSession = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
     repo = MessageRepository(db)
     messages = await repo.get_lobby_messages(limit=limit, offset=offset)
     total = await repo.count_lobby_messages()
@@ -146,7 +144,8 @@ async def lobby_history(limit: int = Query(default=50, ge=1, le=100),
 async def room_mesages(pin: str,
                        limit: int = Query(default=50, ge=1, le=100),
                        offset: int = Query(default=0, ge=0),
-                       db: AsyncSession = Depends(get_db)):
+                       db: AsyncSession = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
     room_repo = RoomRepository(db)
     room = await room_repo.get_by_pin(db, pin)
     if not room:
@@ -322,13 +321,13 @@ async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSes
         
 # Debug
 @app.get("/debug/explain/lobby")
-async def explain_lobby(db: AsyncSession = Depends(get_db)):
+async def explain_lobby(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     msg_repo = MessageRepository(db)
     plan = await msg_repo.explain_lobby_message()
     return {"Query plan": plan}
 
 @app.get("/debug/explain/room/{pin}")
-async def explain_room(pin: str, db: AsyncSession = Depends(get_db)):
+async def explain_room(pin: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     room_repo = RoomRepository(db)
     room = await room_repo.get_by_pin(pin=pin)
     if not room:

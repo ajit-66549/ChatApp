@@ -3,39 +3,96 @@ import { useWebSocket } from './hooks/useWebSocket'
 import { useHistory } from './hooks/useHistory'
 import type { ChatMessage, HistoryMessage } from './types/chat'
 
-const CLIENT_ID = `user_${Math.random().toString(36).slice(2, 7)}`
+const API_URL = 'http://localhost:8000'
 
 export default function App() {
-  const { messages, status, reconnectCount, onlineCount, sendMessage, sendEvent } = useWebSocket(CLIENT_ID)
-  const { history, loading, hasMore, loaded, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory()
+  const [token, setToken] = useState<string>(
+    () => localStorage.getItem('token') ?? ''
+  )
+  const [username, setUsername] = useState<string>(
+    () => localStorage.getItem('username') ?? ''
+  )
+  const [authForm, setAuthForm] = useState({ username: '', password: '' })
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [authError, setAuthError] = useState('')
+
+  const { messages, status, reconnectCount, onlineCount, sendMessage, sendEvent } = useWebSocket(token)
+  const { history, loading, hasMore, loaded, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory(token)
 
   const [input, setInput] = useState('')
   const [pinInput, setPinInput] = useState('')
   const [currentRoom, setCurrentRoom] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto scroll on new live message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Track room state from WebSocket events
-  // SRP: this effect only handles room state changes
   useEffect(() => {
     const last = messages[messages.length - 1]
     if (!last) return
-
     if (last.type === 'room_created' || last.type === 'room_joined') {
-      const pin = last.room_pin ?? null
-      setCurrentRoom(pin)
-      clearHistory()  // clear old history when switching context
+      setCurrentRoom(last.room_pin ?? null)
+      clearHistory()
     }
-
     if (last.type === 'room_left') {
       setCurrentRoom(null)
       clearHistory()
     }
   }, [messages])
+
+  // Auto-fetch lobby history when connected to lobby
+  useEffect(() => {
+    if (status === 'connected' && !currentRoom && !loaded) {
+      fetchLobbyHistory(true)
+    }
+  }, [status, currentRoom, loaded, fetchLobbyHistory])
+
+  // Auto-fetch room history when joining a room
+  useEffect(() => {
+    if (status === 'connected' && currentRoom && !loaded) {
+      fetchRoomHistory(currentRoom, true)
+    }
+  }, [status, currentRoom, loaded, fetchRoomHistory])
+
+  const handleAuth = async () => {
+    setAuthError('')
+    try {
+      const res = await fetch(`${API_URL}/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm)
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setAuthError(data.detail ?? 'Something went wrong')
+        return
+      }
+
+      if (authMode === 'login') {
+        localStorage.setItem('token', data.access_token)
+        localStorage.setItem('username', data.username)
+        setToken(data.access_token)
+        setUsername(data.username)
+      } else {
+        // After signup switch to login
+        setAuthMode('login')
+        setAuthError('Signup successful! Please login.')
+      }
+    } catch {
+      setAuthError('Network error')
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    setToken('')
+    setUsername('')
+    setCurrentRoom(null)
+    clearHistory()
+  }
 
   const handleSend = () => {
     const trimmed = input.trim()
@@ -44,26 +101,45 @@ export default function App() {
     setInput('')
   }
 
-  // SRP: reload button handler has one job — fetch history for current context
   const handleReload = () => {
-    if (currentRoom) {
-      fetchRoomHistory(currentRoom, true)
-    } else {
-      fetchLobbyHistory(true)
-    }
+    if (currentRoom) fetchRoomHistory(currentRoom, true)
+    else fetchLobbyHistory(true)
   }
 
-  const handleLoadMore = () => {
-    if (currentRoom) {
-      fetchRoomHistory(currentRoom)
-    } else {
-      fetchLobbyHistory()
-    }
+  // Show auth form if not logged in
+  if (!token) {
+    return (
+      <div>
+        <h1>ChatApp</h1>
+        <div>
+          <input
+            type="text"
+            placeholder="Username"
+            value={authForm.username}
+            onChange={(e) => setAuthForm({ ...authForm, username: e.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={authForm.password}
+            onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+          />
+          <button onClick={handleAuth}>
+            {authMode === 'login' ? 'Login' : 'Signup'}
+          </button>
+          <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
+            Switch to {authMode === 'login' ? 'Signup' : 'Login'}
+          </button>
+          {authError && <p>{authError}</p>}
+        </div>
+      </div>
+    )
   }
 
   return (
     <div>
-      <h1>ChatApp — {CLIENT_ID}</h1>
+      <h1>ChatApp — {username}</h1>
       <p>
         Status: {status}
         {reconnectCount > 0 && ` (reconnecting ${reconnectCount}/5)`}
@@ -71,7 +147,7 @@ export default function App() {
         {currentRoom ? `Room: ${currentRoom} (${onlineCount} online)` : 'Lobby'}
       </p>
 
-      {/* Room controls */}
+      {/* Controls */}
       <div>
         {!currentRoom && (
           <>
@@ -103,62 +179,49 @@ export default function App() {
             Leave Room
           </button>
         )}
-
-        {/* OCP: Reload button is independent — adding auto-load later won't require changing this */}
         <button onClick={handleReload} disabled={loading || status !== 'connected'}>
           {loading ? 'Loading...' : '↺ Reload History'}
         </button>
+        <button onClick={handleLogout}>Logout</button>
       </div>
 
-      {/* Message area */}
+      {/* Messages */}
       <div>
-        {/* Load more — only shown after history is loaded */}
         {loaded && hasMore && (
-          <button onClick={handleLoadMore} disabled={loading}>
+          <button onClick={() => currentRoom ? fetchRoomHistory(currentRoom) : fetchLobbyHistory()} disabled={loading}>
             {loading ? 'Loading...' : 'Load older messages'}
           </button>
         )}
 
-        {/* History messages — only shown after reload button clicked */}
         {loaded && history.map((msg: HistoryMessage) => (
           <div key={msg.id}>
             <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
             {' '}
-            <strong>{msg.user_id === CLIENT_ID ? 'you' : msg.user_id}:</strong>
+            <strong>{msg.user_id === username ? 'you' : msg.user_id}:</strong>
             {' '}
             {msg.text}
             <small> [history]</small>
           </div>
         ))}
 
-        {/* Divider between history and live */}
-        {loaded && history.length > 0 && (
-          <div>── live ──</div>
-        )}
+        {loaded && history.length > 0 && <div>── live ──</div>}
 
-        {/* Live messages */}
         {messages.map((msg: ChatMessage, i) => (
           <div key={i}>
             {msg.type === 'room_created' && (
-              <div>
-                <strong>Room created!</strong> PIN: <strong>{msg.room_pin}</strong> — share with others
-              </div>
+              <div><strong>Room created! PIN: {msg.room_pin}</strong> — share with others</div>
             )}
             {msg.type === 'room_joined' && (
               <em>Joined room {msg.room_pin} ({msg.online_count} online)</em>
             )}
-            {msg.type === 'room_left' && (
-              <em>You left the room. Back in lobby.</em>
-            )}
+            {msg.type === 'room_left' && <em>You left the room. Back in lobby.</em>}
             {msg.type === 'system' && (
               <em>{msg.text}{msg.online_count !== undefined ? ` (${msg.online_count} online)` : ''}</em>
             )}
-            {msg.type === 'error' && (
-              <span>Error: {msg.error}</span>
-            )}
+            {msg.type === 'error' && <span>Error: {msg.error}</span>}
             {msg.type === 'message' && (
               <span>
-                <strong>{msg.client_id === CLIENT_ID ? 'you' : msg.client_id}:</strong>{' '}
+                <strong>{msg.client_id === username ? 'you' : msg.client_id}:</strong>{' '}
                 {msg.text}
                 {msg.room_pin && <small> [room]</small>}
               </span>
@@ -178,9 +241,7 @@ export default function App() {
           placeholder={currentRoom ? 'Message room...' : 'Message lobby...'}
           disabled={status !== 'connected'}
         />
-        <button onClick={handleSend} disabled={status !== 'connected'}>
-          Send
-        </button>
+        <button onClick={handleSend} disabled={status !== 'connected'}>Send</button>
       </div>
     </div>
   )

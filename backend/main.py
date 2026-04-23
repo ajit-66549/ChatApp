@@ -164,8 +164,24 @@ async def room_mesages(pin: str,
     )
     
 # Websocket
-@app.websocket("/ws/{client_id}")
-async def websocket_endpoints(websocket: WebSocket, client_id: str, db: AsyncSession = Depends(get_db)):
+@app.websocket("/ws")
+async def websocket_endpoints(websocket: WebSocket, token: str = Query(...), db: AsyncSession = Depends(get_db)):
+    # Validate token
+    payload = decode_access_token(token)
+    if not payload:
+        await websocket.close(code=4003, reason="Invalid token")
+        return
+    
+    user_id = payload.get("sub")
+    username = payload.get("username")
+    
+    if not user_id or not username:
+        await websocket.close(code=4003, reason="Invalid token payload")
+        return
+    
+    # Use username as client_id for connection tracking
+    client_id = username
+    
     connected = await manager.connect(client_id, websocket)
     if not connected:
         return

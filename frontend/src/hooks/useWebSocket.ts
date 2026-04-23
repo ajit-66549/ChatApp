@@ -5,7 +5,7 @@ const WS_URL = 'ws://localhost:8000/ws'
 const RECONNECT_DELAY_MS = 2000
 const MAX_RECONNECT_ATTEMPTS = 5
 
-export function useWebSocket(clientId: string) {
+export function useWebSocket(token: string) {
   const ws = useRef<WebSocket | null>(null)
   const reconnectAttempts = useRef(0)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -17,8 +17,14 @@ export function useWebSocket(clientId: string) {
   const [onlineCount, setOnlineCount] = useState(0)
 
   const connect = useCallback(() => {
+    if (!token) {
+      setStatus('disconnected')
+      return
+    }
     isManuallyClosed.current = false
-    const socket = new WebSocket(`${WS_URL}/${clientId}`)
+
+    // Pass token as query param for WebSocket authentication
+    const socket = new WebSocket(`${WS_URL}?token=${token}`)
     ws.current = socket
 
     socket.onopen = () => {
@@ -36,10 +42,13 @@ export function useWebSocket(clientId: string) {
 
     socket.onclose = (event: CloseEvent) => {
       if (isManuallyClosed.current) return
-      if (event.code === 4001 || event.code === 4002) {
+
+      // 4003 = auth failed — don't retry
+      if (event.code === 4003) {
         setStatus('disconnected')
         return
       }
+
       if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
         setStatus('reconnecting')
         reconnectAttempts.current += 1
@@ -51,7 +60,7 @@ export function useWebSocket(clientId: string) {
     }
 
     socket.onerror = () => socket.close()
-  }, [clientId])
+  }, [token])
 
   useEffect(() => {
     connect()

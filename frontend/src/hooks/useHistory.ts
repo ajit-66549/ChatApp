@@ -4,24 +4,25 @@ import type { HistoryMessage } from '../types/chat'
 const API_URL = 'http://localhost:8000'
 const LIMIT = 20
 
-export function useHistory() {
+export function useHistory(token: string) {
   const [history, setHistory] = useState<HistoryMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [offset, setOffset] = useState(0)
-  const [loaded, setLoaded] = useState(false)  // tracks if history has been loaded at least once
+  const [loaded, setLoaded] = useState(false)
+
+  const headers = { Authorization: `Bearer ${token}` }
 
   const fetchLobbyHistory = useCallback(async (reset: boolean = false) => {
     setLoading(true)
     const currentOffset = reset ? 0 : offset
-
     try {
       const res = await fetch(
-        `${API_URL}/history/lobby?limit=${LIMIT}&offset=${currentOffset}`
+        `${API_URL}/history/lobby?limit=${LIMIT}&offset=${currentOffset}`,
+        { headers }
       )
       const data = await res.json()
       const reversed = [...data.messages].reverse()
-
       if (reset) {
         setHistory(reversed)
         setOffset(LIMIT)
@@ -29,7 +30,6 @@ export function useHistory() {
         setHistory((prev) => [...reversed, ...prev])
         setOffset(currentOffset + LIMIT)
       }
-
       setHasMore(data.has_more)
       setLoaded(true)
     } catch (e) {
@@ -37,21 +37,19 @@ export function useHistory() {
     } finally {
       setLoading(false)
     }
-  }, [offset])
+  }, [offset, token])
 
   const fetchRoomHistory = useCallback(async (pin: string, reset: boolean = false) => {
     setLoading(true)
     const currentOffset = reset ? 0 : offset
-
     try {
       const res = await fetch(
-        `${API_URL}/history/room/${pin}?limit=${LIMIT}&offset=${currentOffset}`
+        `${API_URL}/history/room/${pin}?limit=${LIMIT}&offset=${currentOffset}`,
+        { headers }
       )
       if (!res.ok) return
-
       const data = await res.json()
       const reversed = [...data.messages].reverse()
-
       if (reset) {
         setHistory(reversed)
         setOffset(LIMIT)
@@ -59,7 +57,6 @@ export function useHistory() {
         setHistory((prev) => [...reversed, ...prev])
         setOffset(currentOffset + LIMIT)
       }
-
       setHasMore(data.has_more)
       setLoaded(true)
     } catch (e) {
@@ -67,7 +64,7 @@ export function useHistory() {
     } finally {
       setLoading(false)
     }
-  }, [offset])
+  }, [offset, token])
 
   const clearHistory = useCallback(() => {
     setHistory([])
@@ -76,13 +73,5 @@ export function useHistory() {
     setLoaded(false)
   }, [])
 
-  return {
-    history,
-    loading,
-    hasMore,
-    loaded,   // ← tells App whether history was ever loaded
-    fetchLobbyHistory,
-    fetchRoomHistory,
-    clearHistory
-  }
+  return { history, loading, hasMore, loaded, fetchLobbyHistory, fetchRoomHistory, clearHistory }
 }

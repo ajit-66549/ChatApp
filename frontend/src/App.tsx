@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useHistory } from './hooks/useHistory'
 import AuthForm from './components/AuthForm'
-import type { ChatMessage, HistoryMessage } from './types/chat'
+import type { ChatMessage, HistoryMessage, ConnectionStatus } from './types/chat'
 
 export default function App() {
   const [token, setToken] = useState<string>(

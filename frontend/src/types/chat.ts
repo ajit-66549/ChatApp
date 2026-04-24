@@ -10,3 +10,20 @@ export interface ChatMessage {
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+
+export interface HistoryMessage {
+  id: string
+  text: string
+  user_id: string
+  username: string
+  room_id: string | null
+  created_at: string
+}
+
+export interface PaginatedMessage {
+  messages: HistoryMessage[]
+  total: number
+  limit: number
+  offset: number
+  has_more: boolean
+}

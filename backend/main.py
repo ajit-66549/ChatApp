@@ -103,7 +103,17 @@ async def lobby_history(
     messages = await repo.get_lobby_messages(limit=limit, offset=offset)
     total = await repo.count_lobby_messages()
     return PaginatedMessages(
-        messages=[MessageResponse.model_validate(m) for m in messages],
+        messages=[
+            MessageResponse(
+                id=m.id,
+                text=m.text,
+                user_id=m.user_id,
+                username=m.user.username,
+                room_id=m.room_id,
+                created_at=m.created_at
+            )
+            for m in messages
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -127,7 +137,17 @@ async def room_history(
     messages = await msg_repo.get_room_messages(room_id=room.id, limit=limit, offset=offset)
     total = await msg_repo.count_room_messages(room_id=room.id)
     return PaginatedMessages(
-        messages=[MessageResponse.model_validate(m) for m in messages],
+        messages=[
+            MessageResponse(
+                id=m.id,
+                text=m.text,
+                user_id=m.user_id,
+                username=m.user.username,
+                room_id=m.room_id,
+                created_at=m.created_at
+            )
+            for m in messages
+        ],
         total=total,
         limit=limit,
         offset=offset,

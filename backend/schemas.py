@@ -27,6 +27,7 @@ class MessageResponse(BaseModel):
     id: str
     text: str
     user_id: str
+    username: str
     room_id: Optional[str]
     created_at: datetime
     

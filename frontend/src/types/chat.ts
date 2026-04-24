@@ -15,6 +15,7 @@ export interface HistoryMessage {
   id: string
   text: string
   user_id: string
+  username: string
   room_id: string | null
   created_at: string
 }

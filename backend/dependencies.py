@@ -9,7 +9,7 @@ async def get_current_user(authorization: str = Header(...), db: AsyncSession = 
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header format. Use: Bearer <token>")
     
-    token = authorization.split("")[1]    # take token from the authorization header
+    token = authorization.split(" ")[1]    # take token from the authorization header
     payload = decode_access_token(token)
     
     if not payload:
@@ -20,7 +20,7 @@ async def get_current_user(authorization: str = Header(...), db: AsyncSession = 
         raise HTTPException(status_code=401, detail="Invalid token payload")
     
     user_repo = UserRepository(db)
-    user = user_repo.get_by_id(user_id)
+    user = await user_repo.get_by_id(user_id)
     
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists")

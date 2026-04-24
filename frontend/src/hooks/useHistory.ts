@@ -21,7 +21,12 @@ export function useHistory(token: string) {
         `${API_URL}/history/lobby?limit=${LIMIT}&offset=${currentOffset}`,
         { headers }
       )
+      if (!res.ok) {
+        console.error('Failed to fetch lobby history:', res.status, res.statusText)
+        return
+      }
       const data = await res.json()
+      console.log('Fetched lobby history:', data.messages.length, 'messages')
       const reversed = [...data.messages].reverse()
       if (reset) {
         setHistory(reversed)
@@ -47,8 +52,12 @@ export function useHistory(token: string) {
         `${API_URL}/history/room/${pin}?limit=${LIMIT}&offset=${currentOffset}`,
         { headers }
       )
-      if (!res.ok) return
+      if (!res.ok) {
+        console.error('Failed to fetch room history:', res.status, res.statusText)
+        return
+      }
       const data = await res.json()
+      console.log('Fetched room history:', data.messages.length, 'messages')
       const reversed = [...data.messages].reverse()
       if (reset) {
         setHistory(reversed)

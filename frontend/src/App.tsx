@@ -125,7 +125,7 @@ export default function App() {
           <div key={msg.id}>
             <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
             {' '}
-            <strong>{msg.user_id === username ? 'you' : msg.user_id}:</strong>
+            <strong>{msg.username === username ? 'you' : msg.username}:</strong>
             {' '}
             {msg.text}
             <small> [history]</small>

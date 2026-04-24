@@ -31,4 +31,28 @@ class UserRepository:
 
     async def exists(self, username: str) -> bool:
         user = await self.get_by_username(username=username)
-        return user is not None   
+        return user is not None
+
+    async def delete_by_id(self, id: str) -> bool:
+        user = await self.get_by_id(id)
+        if not user:
+            return False
+        await self.db.delete(user)
+        try:
+            await self.db.commit()
+            return True
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+
+    async def delete_by_username(self, username: str) -> bool:
+        user = await self.get_by_username(username)
+        if not user:
+            return False
+        await self.db.delete(user)
+        try:
+            await self.db.commit()
+            return True
+        except Exception as e:
+            await self.db.rollback()
+            raise e   

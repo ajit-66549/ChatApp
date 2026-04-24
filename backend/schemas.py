@@ -11,9 +11,9 @@ class IncomingMessage(BaseModel):
     @field_validator("text")
     @classmethod
     def text_not_blank(cls, input):
-        if input is None or not input.strip():
+        if input is not None and not input.strip():
             raise ValueError("text must not be blank")
-        return input.strip()
+        return input.strip() if input else None
     
 class UserResponse(BaseModel):
     id: str
@@ -33,7 +33,7 @@ class MessageResponse(BaseModel):
     class Config:
         from_attributes = True
         
-class PaginatedMessage(BaseModel):
+class PaginatedMessages(BaseModel):
     messages: list[MessageResponse]
     total: int
     limit: int

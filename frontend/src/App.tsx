@@ -5,12 +5,22 @@ import AuthForm from './components/AuthForm'
 import type { ChatMessage, HistoryMessage, ConnectionStatus } from './types/chat'
 
 export default function App() {
-  const [token, setToken] = useState<string>(
-    () => localStorage.getItem('token') ?? ''
-  )
-  const [username, setUsername] = useState<string>(
-    () => localStorage.getItem('username') ?? ''
-  )
+  const [token, setToken] = useState<string>(() => {
+    // Only load from localStorage if this is a page refresh (sessionStorage flag exists)
+    const isRefresh = sessionStorage.getItem('app-initialized')
+    if (isRefresh) {
+      return localStorage.getItem('token') ?? ''
+    }
+    // First load in this browser session: start fresh with login page
+    sessionStorage.setItem('app-initialized', 'true')
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    return ''
+  })
+  const [username, setUsername] = useState<string>(() => {
+    const isRefresh = sessionStorage.getItem('app-initialized')
+    return isRefresh ? (localStorage.getItem('username') ?? '') : ''
+  })
 
   const { messages, status, reconnectCount, onlineCount, sendMessage, sendEvent } = useWebSocket(token)
   const { history, loading, hasMore, loaded, fetchLobbyHistory, fetchRoomHistory, clearHistory } = useHistory(token)

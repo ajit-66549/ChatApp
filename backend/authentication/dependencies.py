@@ -35,6 +35,6 @@ async def get_optional_user(authorization: str = Header(...), db: AsyncSession =
         return None
     
     try:
-        await get_current_user(authorization=authorization, db=db)
+        return await get_current_user(authorization=authorization, db=db)
     except HTTPException:
         return None

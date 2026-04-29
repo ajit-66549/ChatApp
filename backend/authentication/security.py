@@ -32,7 +32,7 @@ async def hash_password(password: str) -> str:
 
 async def verify_password(plain: str, hashed: str) -> bool:
     loop = asyncio.get_event_loop()
-    return loop.run_in_executor(executor, _verify_password, plain, hashed)
+    return await loop.run_in_executor(executor, _verify_password, plain, hashed)
 
 def create_access_token(data: dict) -> str:
     payload = data.copy()

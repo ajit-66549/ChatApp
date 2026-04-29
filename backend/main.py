@@ -314,7 +314,7 @@ async def websocket_endpoint(
                         })
                         continue
 
-                    await msg_repo.save_message(
+                    _, db_stage_timings = await msg_repo.save_message_with_timings(
                         text=event.text,
                         user_id=user.id,
                         room_id=room.id
@@ -330,9 +330,9 @@ async def websocket_endpoint(
                     })
                     broadcast_at = time.perf_counter()
                     
-                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at)
+                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at, db_stage_timings=db_stage_timings)
                 else:
-                    await msg_repo.save_message(
+                    _, db_stage_timings = await msg_repo.save_message_with_timings(
                         text=event.text,
                         user_id=user.id,
                         room_id=None
@@ -347,7 +347,7 @@ async def websocket_endpoint(
                     })
                     broadcast_at = time.perf_counter()
                     
-                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at)
+                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at, db_stage_timings=db_stage_timings)
 
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)

@@ -1,22 +1,33 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from connection_manager import manager
-from schemas import IncomingMessage, PaginatedMessages, MessageResponse
-from database import engine, get_db
-from repositories import UserRepository, RoomRepository, MessageRepository
-from authentication.websocket_auth import authenticate_websocket_user
-from authentication import auth_router
-from authentication.dependencies import get_current_user
-from models import User
+from contextlib import asynccontextmanager
 from pydantic import ValidationError
-from dotenv import load_dotenv
+
+
+from repositories import UserRepository, RoomRepository, MessageRepository
+from schemas import IncomingMessage, PaginatedMessages, MessageResponse
+from authentication.websocket_auth import authenticate_websocket_user
+from authentication.dependencies import get_current_user
+from connection_manager import manager
+from authentication import auth_router
+from database import engine, get_db
+from models import User
+
 import os
 import json
+from dotenv import load_dotenv
+
+import time
+import logging
+from latency import log_message_latency
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s"
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -272,6 +283,8 @@ async def websocket_endpoint(
                 })
 
             elif event.type == "message":
+                receive_at = time.perf_counter()
+                
                 if not event.text:
                     await manager.send_to(client_id, {
                         "type": "error",
@@ -306,6 +319,7 @@ async def websocket_endpoint(
                         user_id=user.id,
                         room_id=room.id
                     )
+                    db_save_at = time.perf_counter()
 
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
@@ -314,18 +328,26 @@ async def websocket_endpoint(
                         "room_pin": pin,
                         "online_count": manager.get_room_count(pin)
                     })
+                    broadcast_at = time.perf_counter()
+                    
+                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at)
                 else:
                     await msg_repo.save_message(
                         text=event.text,
                         user_id=user.id,
                         room_id=None
                     )
+                    db_save_at = time.perf_counter()
+                    
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,
                         "text": event.text,
                         "online_count": manager.count()
                     })
+                    broadcast_at = time.perf_counter()
+                    
+                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at)
 
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)

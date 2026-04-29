@@ -63,10 +63,11 @@ class MessageRepository:
         return [row[0] for row in result.fetchall()]
 
     async def explain_room(self, room_id: str) -> list[str]:
-        result = await self.db.execute(text("""
-                                       SELECT * FROM messages
-                                       WHERE room_id = %s
-                                       ORDER BY created_at desc
-                                       LIMIT 50
-                                       """), {"room_id": room_id})
+        result = await self.db.execute(text(f"""
+                                            EXPLAIN ANALYZE
+                                            SELECT * FROM messages
+                                            WHERE room_id = '{room_id}'
+                                            ORDER BY created_at DESC
+                                            LIMIT 50
+                                        """))
         return [row[0] for row in result.fetchall()]

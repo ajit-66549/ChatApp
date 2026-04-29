@@ -6,9 +6,9 @@ from connection_manager import manager
 from schemas import IncomingMessage, PaginatedMessages, MessageResponse
 from database import engine, get_db
 from repositories import UserRepository, RoomRepository, MessageRepository
-from auth import decode_access_token
-from dependencies import get_current_user
-from routers import auth_router
+from authentication.websocket_auth import authenticate_websocket_user
+from authentication import auth_router
+from authentication.dependencies import get_current_user
 from models import User
 from pydantic import ValidationError
 from dotenv import load_dotenv
@@ -161,15 +161,9 @@ async def websocket_endpoint(
     token: str,
     db: AsyncSession = Depends(get_db)
 ):
-    payload = decode_access_token(token)
-    if not payload:
+    user = await authenticate_websocket_user(token=token, db=db)
+    if not user:
         await websocket.close(code=4003, reason="Invalid or expired token")
-        return
-
-    user_repo = UserRepository(db)
-    user = await user_repo.get_by_id(payload.get("sub"))
-    if not user or not user.is_active:
-        await websocket.close(code=4003, reason="Unauthorized")
         return
 
     client_id = user.username

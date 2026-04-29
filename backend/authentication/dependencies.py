@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from repositories import UserRepository
-from auth import decode_access_token
+from authentication.security import decode_access_token
 from models import User
 
 async def get_current_user(authorization: str = Header(...), db: AsyncSession = Depends(get_db)) -> User:
@@ -27,6 +27,8 @@ async def get_current_user(authorization: str = Header(...), db: AsyncSession = 
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
+    
+    return user
     
 async def get_optional_user(authorization: str = Header(...), db: AsyncSession = Depends(get_db)) -> User|None:
     if not authorization:

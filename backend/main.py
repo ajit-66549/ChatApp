@@ -14,8 +14,26 @@ from pydantic import ValidationError
 from dotenv import load_dotenv
 import os
 import json
+import logging
+import time
 
 load_dotenv()
+
+logger = logging.getLogger("chatapp.performance")
+
+
+def _log_message_latency(client_id: str, scope: str, recv_at: float, db_done_at: float, broadcast_done_at: float) -> None:
+    db_latency_ms = (db_done_at - recv_at) * 1000
+    broadcast_latency_ms = (broadcast_done_at - db_done_at) * 1000
+    total_latency_ms = (broadcast_done_at - recv_at) * 1000
+    logger.info(
+        "message_pipeline client=%s scope=%s db_ms=%.2f broadcast_ms=%.2f total_ms=%.2f",
+        client_id,
+        scope,
+        db_latency_ms,
+        broadcast_latency_ms,
+        total_latency_ms,
+    )
 
 
 @asynccontextmanager
@@ -272,6 +290,8 @@ async def websocket_endpoint(
                 })
 
             elif event.type == "message":
+                recv_at = time.perf_counter()
+
                 if not event.text:
                     await manager.send_to(client_id, {
                         "type": "error",
@@ -306,6 +326,7 @@ async def websocket_endpoint(
                         user_id=user.id,
                         room_id=room.id
                     )
+                    db_done_at = time.perf_counter()
 
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
@@ -314,18 +335,23 @@ async def websocket_endpoint(
                         "room_pin": pin,
                         "online_count": manager.get_room_count(pin)
                     })
+                    broadcast_done_at = time.perf_counter()
+                    _log_message_latency(client_id, f"room:{pin}", recv_at, db_done_at, broadcast_done_at)
                 else:
                     await msg_repo.save_message(
                         text=event.text,
                         user_id=user.id,
                         room_id=None
                     )
+                    db_done_at = time.perf_counter()
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,
                         "text": event.text,
                         "online_count": manager.count()
                     })
+                    broadcast_done_at = time.perf_counter()
+                    _log_message_latency(client_id, "lobby", recv_at, db_done_at, broadcast_done_at)
 
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)

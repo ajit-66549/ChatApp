@@ -363,4 +363,6 @@ async def websocket_endpoint(
                 "type": "system",
                 "text": f"{client_id} disconnected"
             }, exclude=client_id)
+            
+    finally:
         manager.disconnect(client_id)

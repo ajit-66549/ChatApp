@@ -21,8 +21,11 @@ from dotenv import load_dotenv
 import time
 import logging
 from latency import log_message_latency
+from messaging.messagequeue import MessageQueue
 
 load_dotenv()
+
+message_queue = MessageQueue()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +36,10 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         print("✅ Database connected successfully")
+    await message_queue.ping()
+    print("✅ Redis connected successfully")
     yield
+    await message_queue.close()
     await engine.dispose()
     print("Database connection closed")
 
@@ -59,8 +65,22 @@ async def health():
         db_status = "ok"
     except Exception as e:
         db_status = f"error: {str(e)}"
-    return {"status": "ok", "database": db_status}
+    
+    try:
+        await message_queue.ping()
+        redis_status = "ok"
+    except Exception as e:
+        redis_status = f"error: {str(e)}"
+        
+    return {"status": "ok", "database": db_status, "redis": redis_status}
 
+@app.get("/redis/ping")
+async def redis_ping():
+    try:
+        await message_queue.ping()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Redis ping failed: {str(e)}")
+    return {"ping": "pong"}
 
 @app.get("/clients")
 def clients():

@@ -22,6 +22,7 @@ import time
 import logging
 from latency import log_message_latency
 from messaging.messagequeue import MessageQueue
+from messaging.queuedmessage import QueuedMessage
 
 load_dotenv()
 
@@ -314,6 +315,7 @@ async def websocket_endpoint(
                 
                 pin = manager.get_client_room(client_id)
                 msg_repo = MessageRepository(db)
+                room_id = None
 
                 if pin:
                     room_repo = RoomRepository(db)
@@ -341,6 +343,7 @@ async def websocket_endpoint(
                     )
                     db_save_at = time.perf_counter()
 
+                    room_id = room.id
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
                         "client_id": client_id,
@@ -369,6 +372,22 @@ async def websocket_endpoint(
                     
                     log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at, db_stage_timings=db_stage_timings)
 
+                queued_message = QueuedMessage(
+                    text = event.text,
+                    user_id = user.id,
+                    room_id = room_id,
+                )
+                
+                try: 
+                    message_queue.enqueue(queued_message)
+                except Exception:
+                    logging.exception("Failed to enqueue message")
+                    await manager.send_to(client_id, {
+                        "type": "Error",
+                        "error": "Message delivered, but not queued"
+                    })
+                    continue
+                
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)
         if pin:

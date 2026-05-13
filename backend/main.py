@@ -379,7 +379,7 @@ async def websocket_endpoint(
                 )
                 
                 try: 
-                    message_queue.enqueue(queued_message)
+                    await message_queue.enqueue(queued_message)
                 except Exception:
                     logging.exception("Failed to enqueue message")
                     await manager.send_to(client_id, {

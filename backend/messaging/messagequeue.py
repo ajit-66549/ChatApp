@@ -14,12 +14,12 @@ class MessageQueue:
         return bool(await self._redis.ping())
     
     async def enqueue(self, message: QueuedMessage) -> None:
-        return self._redis.rpush(self.queue_key, message.model_dump_json())   # serialize message and rpush in queue
+        return await self._redis.rpush(self.queue_key, message.model_dump_json())   # serialize message and rpush in queue
     
     async def enqueue_many(self, messages: Iterable[QueuedMessage]) -> None:
         payloads = [message.model_dump_json() for message in messages]
         if payloads:
-            return self._redis_rpush(self.queue_key, *payloads)
+            return await self._redis.rpush(self.queue_key, *payloads)
     
     async def close(self) -> None:
         await self._redis.aclose()

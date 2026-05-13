@@ -20,7 +20,7 @@ class User(Base):
     
     messages = relationship("Message", back_populates="user")
     
-# databse model for Room
+# database model for Room
 class Room(Base):
     __tablename__ = "rooms"
     id = Column(String, primary_key=True, default=generate_uuid)
@@ -29,7 +29,7 @@ class Room(Base):
     
     messages = relationship("Message", back_populates="room")
     
-# databse model for Messages
+# database model for Messages
 class Message(Base):
     __tablename__ = "messages"
     id = Column(String, primary_key=True, default=generate_uuid)

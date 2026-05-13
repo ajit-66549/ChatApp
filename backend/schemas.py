@@ -60,7 +60,7 @@ class SignupRequest(BaseModel):
     
     @field_validator("password")
     @classmethod
-    def passowrd_valid(cls, input):
+    def password_valid(cls, input):
         if len(input) < 6:
             raise ValueError("Password must be at least 6 characters")
         return input

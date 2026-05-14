@@ -18,9 +18,7 @@ import os
 import json
 from dotenv import load_dotenv
 
-import time
 import logging
-from latency import log_message_latency
 from messaging.messagequeue import MessageQueue
 from messaging.queuedmessage import QueuedMessage
 
@@ -306,8 +304,6 @@ async def websocket_endpoint(
                 })
 
             elif event.type == "message":
-                receive_at = time.perf_counter()
-                
                 if not event.text:
                     await manager.send_to(client_id, {
                         "type": "error",
@@ -316,7 +312,6 @@ async def websocket_endpoint(
                     continue
                 
                 pin = manager.get_client_room(client_id)
-                msg_repo = MessageRepository(db)
                 room_id = None
 
                 if pin:
@@ -338,13 +333,6 @@ async def websocket_endpoint(
                         })
                         continue
 
-                    _, db_stage_timings = await msg_repo.save_message_with_timings(
-                        text=event.text,
-                        user_id=user.id,
-                        room_id=room.id
-                    )
-                    db_save_at = time.perf_counter()
-
                     room_id = room.id
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
@@ -353,26 +341,13 @@ async def websocket_endpoint(
                         "room_pin": pin,
                         "online_count": manager.get_room_count(pin)
                     })
-                    broadcast_at = time.perf_counter()
-                    
-                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at, db_stage_timings=db_stage_timings)
                 else:
-                    _, db_stage_timings = await msg_repo.save_message_with_timings(
-                        text=event.text,
-                        user_id=user.id,
-                        room_id=None
-                    )
-                    db_save_at = time.perf_counter()
-                    
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,
                         "text": event.text,
                         "online_count": manager.count()
                     })
-                    broadcast_at = time.perf_counter()
-                    
-                    log_message_latency(client_id, f"room:{pin}", receive_at, db_save_at, broadcast_at, db_stage_timings=db_stage_timings)
 
                 queued_message = QueuedMessage(
                     text = event.text,

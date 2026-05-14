@@ -26,17 +26,19 @@ from messaging.queuedmessage import QueuedMessage
 
 load_dotenv()
 
-message_queue = MessageQueue()
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s:%(name)s:%(message)s"
 )
 
+message_queue = MessageQueue()
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI): 
     async with engine.begin() as conn:
         print("✅ Database connected successfully")
+    
+    app.state.message_queue = MessageQueue()
     await message_queue.ping()
     print("✅ Redis connected successfully")
     yield

@@ -3,6 +3,9 @@ from sqlalchemy import select, func, text
 from sqlalchemy.orm import joinedload
 from models import Message
 
+from messaging.queuedmessage import QueuedMessage
+from typing import Sequence
+
 import time
 
 class MessageRepository:
@@ -42,6 +45,27 @@ class MessageRepository:
             }
             
             return message, timings_ms
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+        
+    async def save_messages_batch(self, messages: Sequence[QueuedMessage]) -> int:
+        if not messages:
+            return 0
+        
+        message_models = [
+            Message(id=message.id,
+                    text=message.text,
+                    user_id=message.user_id,
+                    room_id=message.room_id,
+                    created_at=message.created_at)
+            for message in messages
+        ]
+        
+        self.db.add_all(message_models)
+        try:
+            await self.db.commit()
+            return len(message_models)
         except Exception as e:
             await self.db.rollback()
             raise e

@@ -1,28 +1,46 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from connection_manager import manager
-from schemas import IncomingMessage, PaginatedMessages, MessageResponse
-from database import engine, get_db
-from repositories import UserRepository, RoomRepository, MessageRepository
-from authentication.websocket_auth import authenticate_websocket_user
-from authentication import auth_router
-from authentication.dependencies import get_current_user
-from models import User
+from contextlib import asynccontextmanager
 from pydantic import ValidationError
-from dotenv import load_dotenv
+
+
+from repositories import UserRepository, RoomRepository, MessageRepository
+from schemas import IncomingMessage, PaginatedMessages, MessageResponse
+from authentication.websocket_auth import authenticate_websocket_user
+from authentication.dependencies import get_current_user
+from connection_manager import manager
+from authentication import auth_router
+from database import engine, get_db
+from models import User
+
 import os
 import json
+from dotenv import load_dotenv
+
+import logging
+from messaging.messagequeue import MessageQueue
+from messaging.queuedmessage import QueuedMessage
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s"
+)
+
+message_queue = MessageQueue()
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI): 
     async with engine.begin() as conn:
         print("✅ Database connected successfully")
+    
+    app.state.message_queue = MessageQueue()
+    await message_queue.ping()
+    print("✅ Redis connected successfully")
     yield
+    await message_queue.close()
     await engine.dispose()
     print("Database connection closed")
 
@@ -48,8 +66,22 @@ async def health():
         db_status = "ok"
     except Exception as e:
         db_status = f"error: {str(e)}"
-    return {"status": "ok", "database": db_status}
+    
+    try:
+        await message_queue.ping()
+        redis_status = "ok"
+    except Exception as e:
+        redis_status = f"error: {str(e)}"
+        
+    return {"status": "ok", "database": db_status, "redis": redis_status}
 
+@app.get("/redis/ping")
+async def redis_ping():
+    try:
+        await message_queue.ping()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Redis ping failed: {str(e)}")
+    return {"ping": "pong"}
 
 @app.get("/clients")
 def clients():
@@ -280,7 +312,7 @@ async def websocket_endpoint(
                     continue
                 
                 pin = manager.get_client_room(client_id)
-                msg_repo = MessageRepository(db)
+                room_id = None
 
                 if pin:
                     room_repo = RoomRepository(db)
@@ -301,12 +333,7 @@ async def websocket_endpoint(
                         })
                         continue
 
-                    await msg_repo.save_message(
-                        text=event.text,
-                        user_id=user.id,
-                        room_id=room.id
-                    )
-
+                    room_id = room.id
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
                         "client_id": client_id,
@@ -315,11 +342,6 @@ async def websocket_endpoint(
                         "online_count": manager.get_room_count(pin)
                     })
                 else:
-                    await msg_repo.save_message(
-                        text=event.text,
-                        user_id=user.id,
-                        room_id=None
-                    )
                     await manager.broadcast({
                         "type": "message",
                         "client_id": client_id,
@@ -327,6 +349,22 @@ async def websocket_endpoint(
                         "online_count": manager.count()
                     })
 
+                queued_message = QueuedMessage(
+                    text = event.text,
+                    user_id = user.id,
+                    room_id = room_id,
+                )
+                
+                try: 
+                    await message_queue.enqueue(queued_message)
+                except Exception:
+                    logging.exception("Failed to enqueue message")
+                    await manager.send_to(client_id, {
+                        "type": "Error",
+                        "error": "Message delivered, but not queued"
+                    })
+                    continue
+                
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)
         if pin:
@@ -341,4 +379,6 @@ async def websocket_endpoint(
                 "type": "system",
                 "text": f"{client_id} disconnected"
             }, exclude=client_id)
+            
+    finally:
         manager.disconnect(client_id)

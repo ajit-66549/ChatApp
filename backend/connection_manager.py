@@ -1,4 +1,4 @@
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from typing import Dict, Set, Optional
 import json
 import random
@@ -33,15 +33,18 @@ class ConnectionManager:
     async def send_to(self, client_id: str, payload: dict):
         ws = self.connections.get(client_id)
         if ws:
-            await ws.send_text(json.dumps(payload))
+            try:
+                await ws.send_text(json.dumps(payload))
+            except (WebSocketDisconnect, RuntimeError):
+                self.disconnect(client_id)
             
     # send message to all clients who are not in any room
     async def broadcast(self, payload: dict, exclude: str = None):
-        for client_id, ws in self.connections.items():
+        for client_id, ws in list(self.connections.items()):
             if exclude and client_id == exclude:
                 continue
             if self.client_room.get(client_id) is None:
-                await ws.send_text(json.dumps(payload))
+                await self.send_to(client_id, payload)
             
     def disconnect(self, client_id: str):
         self.leave_room(client_id)

@@ -19,7 +19,7 @@ class RoomRepository:
         return result.scalar_one_or_none()
     
     async def exists(self, pin: str) -> bool:
-        room = self.get_by_pin(pin)
+        room = await self.get_by_pin(pin)
         return room is not None
     
     async def create(self, pin: str) -> Room:

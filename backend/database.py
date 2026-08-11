@@ -21,8 +21,23 @@ engine = create_async_engine(
     echo=True,
 )
 
+# Separate engine for Celery tasks (different connection pool)
+celery_engine = create_async_engine(
+    DB_URL,
+    pool_size=5,
+    max_overflow=10,
+    echo=True,
+)
+
 SessionLocal = async_sessionmaker(
     bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+# Separate session maker for Celery tasks
+CelerySessionLocal = async_sessionmaker(
+    bind=celery_engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )

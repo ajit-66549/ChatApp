@@ -3,6 +3,11 @@ from sqlalchemy import select, func, text
 from sqlalchemy.orm import joinedload
 from models import Message
 
+from messaging.queuedmessage import QueuedMessage
+from typing import Sequence
+
+import time
+
 class MessageRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -14,6 +19,53 @@ class MessageRepository:
             await self.db.commit()
             await self.db.refresh(message)
             return message
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+    
+    async def save_message_with_timings(self, text: str, user_id: str, room_id: str | None = None) -> tuple[Message, dict[str, float]]:
+        start = time.perf_counter()
+        message = Message(text=text, user_id=user_id, room_id=room_id)
+        self.db.add(message)
+        add_done = time.perf_counter()
+        try:
+            commit_start = time.perf_counter()
+            await self.db.commit()
+            commit_done = time.perf_counter()
+            
+            refresh_start = time.perf_counter()
+            await self.db.refresh(message)
+            refresh_done = time.perf_counter()
+            
+            timings_ms = {
+                "model_init_ms": (add_done - start) * 1000,
+                "commit_ms": (commit_done - commit_start) * 1000,
+                "refresh_ms": (refresh_done - refresh_start) * 1000,
+                "repo_total_ms": (refresh_done - start) * 1000,
+            }
+            
+            return message, timings_ms
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+        
+    async def save_messages_batch(self, messages: Sequence[QueuedMessage]) -> int:
+        if not messages:
+            return 0
+        
+        message_models = [
+            Message(id=message.id,
+                    text=message.text,
+                    user_id=message.user_id,
+                    room_id=message.room_id,
+                    created_at=message.created_at)
+            for message in messages
+        ]
+        
+        self.db.add_all(message_models)
+        try:
+            await self.db.commit()
+            return len(message_models)
         except Exception as e:
             await self.db.rollback()
             raise e

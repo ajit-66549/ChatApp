@@ -7,3 +7,5 @@ asyncpg
 alembic
 bcrypt
 python-jose[cryptography]
+redis
+celery

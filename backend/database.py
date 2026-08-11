@@ -3,6 +3,8 @@ from sqlalchemy.orm import DeclarativeBase
 from dotenv import load_dotenv
 import os
 
+from sqlalchemy.pool import NullPool
+
 load_dotenv()
 
 #build databse url
@@ -24,8 +26,7 @@ engine = create_async_engine(
 # Separate engine for Celery tasks (different connection pool)
 celery_engine = create_async_engine(
     DB_URL,
-    pool_size=5,
-    max_overflow=10,
+    poolclass=NullPool,
     echo=True,
 )
 

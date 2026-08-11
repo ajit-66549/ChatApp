@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         print("✅ Database connected successfully")
     
-    app.state.message_queue = MessageQueue()
+    app.state.message_queue = message_queue
     await message_queue.ping()
     print("✅ Redis connected successfully")
     yield
@@ -334,6 +334,24 @@ async def websocket_endpoint(
                         continue
 
                     room_id = room.id
+
+                queued_message = QueuedMessage(
+                    text=event.text,
+                    user_id=user.id,
+                    room_id=room_id,
+                )
+
+                try:
+                    await message_queue.enqueue(queued_message)
+                except Exception:
+                    logging.exception("Failed to enqueue message")
+                    await manager.send_to(client_id, {
+                        "type": "error",
+                        "error": "Message could not be queued; please try again"
+                    })
+                    continue
+
+                if pin:
                     await manager.broadcast_to_room(pin, {
                         "type": "message",
                         "client_id": client_id,
@@ -348,22 +366,6 @@ async def websocket_endpoint(
                         "text": event.text,
                         "online_count": manager.count()
                     })
-
-                queued_message = QueuedMessage(
-                    text = event.text,
-                    user_id = user.id,
-                    room_id = room_id,
-                )
-                
-                try: 
-                    await message_queue.enqueue(queued_message)
-                except Exception:
-                    logging.exception("Failed to enqueue message")
-                    await manager.send_to(client_id, {
-                        "type": "Error",
-                        "error": "Message delivered, but not queued"
-                    })
-                    continue
                 
     except WebSocketDisconnect:
         pin = manager.get_client_room(client_id)

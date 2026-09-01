@@ -17,7 +17,7 @@ export function useWebSocket(token: string) {
   const [reconnectCount, setReconnectCount] = useState(0)
   const [onlineCount, setOnlineCount] = useState(0)
 
-  const connect = useCallback(() => {
+  const connect = useCallback(function connect() {
     if (!token) {
       setStatus('disconnected')
       return
@@ -67,7 +67,9 @@ export function useWebSocket(token: string) {
     connect()
     return () => {
       isManuallyClosed.current = true
-      reconnectTimer.current && clearTimeout(reconnectTimer.current)
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+      }
       ws.current?.close()
     }
   }, [connect])

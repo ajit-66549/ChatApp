@@ -38,14 +38,14 @@ export default function App() {
     const last = messages[messages.length - 1]
     if (!last) return
     if (last.type === 'room_created' || last.type === 'room_joined') {
-      setCurrentRoom(last.room_pin ?? null)
+      queueMicrotask(() => setCurrentRoom(last.room_pin ?? null))
       clearHistory()
     }
     if (last.type === 'room_left') {
-      setCurrentRoom(null)
+      queueMicrotask(() => setCurrentRoom(null))
       clearHistory()
     }
-  }, [messages])
+  }, [messages, clearHistory])
 
   const handleLogin = (token: string, username: string) => {
     localStorage.setItem('token', token)

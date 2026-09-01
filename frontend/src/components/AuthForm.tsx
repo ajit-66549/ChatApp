@@ -23,8 +23,8 @@ export default function AuthForm({ onLogin }: AuthFormProps) {
         const data = await loginUser(form.username, form.password)
         onLogin(data.access_token, data.username)
       }
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Authentication failed')
     } finally {
       setLoading(false)
     }

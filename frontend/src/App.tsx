@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useHistory } from './hooks/useHistory'
 import AuthForm from './components/AuthForm'
@@ -27,25 +27,32 @@ export default function App() {
 
   const [input, setInput] = useState('')
   const [pinInput, setPinInput] = useState('')
-  const [currentRoom, setCurrentRoom] = useState<string | null>(null)
+  const prevRoomRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const currentRoom = useMemo<string | null>(() => {
+    let room: string | null = null
+    for (const msg of messages) {
+      if (msg.type === 'room_created' || msg.type === 'room_joined') {
+        room = msg.room_pin ?? null
+      }
+      if (msg.type === 'room_left') {
+        room = null
+      }
+    }
+    return room
+  }, [messages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   useEffect(() => {
-    const last = messages[messages.length - 1]
-    if (!last) return
-    if (last.type === 'room_created' || last.type === 'room_joined') {
-      setCurrentRoom(last.room_pin ?? null)
+    if (prevRoomRef.current !== currentRoom) {
       clearHistory()
+      prevRoomRef.current = currentRoom
     }
-    if (last.type === 'room_left') {
-      setCurrentRoom(null)
-      clearHistory()
-    }
-  }, [messages])
+  }, [currentRoom, clearHistory])
 
   const handleLogin = (token: string, username: string) => {
     localStorage.setItem('token', token)
@@ -59,7 +66,6 @@ export default function App() {
     localStorage.removeItem('username')
     setToken('')
     setUsername('')
-    setCurrentRoom(null)
     clearHistory()
   }
 

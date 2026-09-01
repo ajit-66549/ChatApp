@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { ChatMessage, ConnectionStatus } from '../types/chat'
 
-const WS_URL = 'ws://localhost:8000/ws'
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_PROTOCOL}//${window.location.host}/ws`
 const RECONNECT_DELAY_MS = 2000
 const MAX_RECONNECT_ATTEMPTS = 5
 

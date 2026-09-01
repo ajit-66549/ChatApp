@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { HistoryMessage } from '../types/chat'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL ?? ''
 const LIMIT = 20
 
 export function useHistory(token: string) {

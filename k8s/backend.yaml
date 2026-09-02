@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: backend
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: backend
+
+  template:
+    metadata:
+      labels:
+        app: backend
+
+    spec:
+      containers:
+        - name: backend
+          image: chatapp-backend:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: APP_NAME
+              value: ChatApp
+
+            - name: DB_HOST
+              value: db
+
+            - name: DB_PORT
+              value: "5432"
+
+            - name: DB_NAME
+              value: chatapp
+
+            - name: DB_USER
+              value: chatapp
+
+            - name: DB_PASSWORD
+              value: chatapp
+
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+
+            - name: SECRET_KEY
+              value: change-this-secret-before-production
+
+            - name: ALGORITHM
+              value: HS256
+
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              value: "30"
+
+---
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: backend
+
+spec:
+  selector:
+    app: backend
+
+  ports:
+    - port: 8000
+      targetPort: 8000

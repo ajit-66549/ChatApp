@@ -64,6 +64,7 @@ spec:
               value: "5.0"
 
 ---
+---
 apiVersion: apps/v1
 kind: Deployment
 
@@ -96,6 +97,21 @@ spec:
             - --loglevel=info
 
           env:
+            - name: DB_HOST
+              value: db
+
+            - name: DB_PORT
+              value: "5432"
+
+            - name: DB_NAME
+              value: chatapp
+
+            - name: DB_USER
+              value: chatapp
+
+            - name: DB_PASSWORD
+              value: chatapp
+
             - name: REDIS_URL
               value: redis://redis:6379/0
 

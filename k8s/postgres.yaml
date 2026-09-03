@@ -1,10 +1,11 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 
 metadata:
   name: postgres
 
 spec:
+  serviceName: db
   replicas: 1
 
   selector:
@@ -34,6 +35,28 @@ spec:
             - name: POSTGRES_PASSWORD
               value: chatapp
 
+            # Point PGDATA to a subdirectory so Postgres doesn't complain
+            # about the lost+found dir that Kubernetes creates in mounted volumes.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+  # Kubernetes automatically creates and binds a PVC for each pod.
+  # When the pod is deleted/recreated, the same PVC is re-attached
+  # and all existing data is transparently restored.
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
 ---
 
 apiVersion: v1
@@ -43,6 +66,7 @@ metadata:
   name: db
 
 spec:
+  # ClusterIP (default) is correct — only internal pods need to reach Postgres.
   selector:
     app: postgres
 
